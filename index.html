@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ricettario">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#d9480f">
+<title>Ricettario</title>
+<style>
+:root{--bg:#f8f6f3;--card:#fff;--tx:#2a221c;--mut:#7a6d63;--ac:#d9480f;--bd:#e8e1da;--hl:#fff1b8}
+@media(prefers-color-scheme:dark){:root{--bg:#1c1612;--card:#271f19;--tx:#f1e9e2;--mut:#a39485;--ac:#ff7a3d;--bd:#3a2f27;--hl:#4d4421}}
+*{box-sizing:border-box}
+body{margin:0 auto;font:16px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--tx);padding:16px;max-width:560px}
+h1{font-size:22px;margin:4px 0 2px}
+h2{font-size:14px;margin:18px 0 6px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+.sub{color:var(--mut);font-size:13px;margin-bottom:12px}.sub:empty{display:none}
+input,select,textarea{padding:12px;border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx);font:inherit;min-width:0;width:100%}
+textarea{resize:vertical}
+button{border:0;border-radius:10px;padding:12px 16px;background:var(--ac);color:#fff;font-size:16px;cursor:pointer}
+button.g{background:var(--card);color:var(--tx);border:1px solid var(--bd)}
+button.l{background:none;color:var(--ac);padding:6px 2px}
+.row{display:flex;gap:8px;align-items:center}
+.tools{margin:12px 0 10px}
+.cats{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+.cats button{background:var(--card);color:var(--tx);border:1px solid var(--bd);padding:6px 10px;font-size:13px;border-radius:16px}
+.cats button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.card{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:8px;cursor:pointer}
+.card .t{flex:1;min-width:0}
+.card b{display:block;word-break:break-word}
+.card small,.meta{color:var(--mut);font-size:13px}
+.st{background:none;padding:4px 8px;font-size:22px;color:var(--mut)}
+.st.on{color:#f5a300}
+.msg{padding:12px;border:1px dashed var(--bd);border-radius:10px;color:var(--mut);text-align:center}
+.ing{display:flex;gap:10px;align-items:center;padding:8px 2px;border-bottom:1px solid var(--bd);cursor:pointer}
+.ing.d{text-decoration:line-through;color:var(--mut)}
+.ing.hd{font-weight:700;cursor:default;border:0;padding-top:14px}
+.ing i{font-style:normal;width:22px;text-align:center}
+.steps{white-space:pre-wrap}
+.sv{display:flex;align-items:center;gap:10px;margin:10px 0}
+.sv button{padding:4px 14px;font-size:20px}
+.acts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:18px}
+.acts .w{grid-column:1/-1}
+label{display:block;font-size:13px;color:var(--mut);margin:12px 0 4px}
+[hidden]{display:none!important}
+.nw{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--hl);border:1px solid var(--bd);border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:14px}
+.nw button{padding:6px 10px;font-size:13px;white-space:nowrap}
+@media print{:root{--bg:#fff;--card:#fff;--tx:#000;--mut:#444;--bd:#bbb}body{padding:0;max-width:none}.acts,.l,.sv button,.sub,.ing i{display:none!important}.ing{cursor:default}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const DB_URL="https://ricettario-famiglia-29a79-default-rtdb.europe-west1.firebasedatabase.app";
+const SPESA_URL="https://spesa-famiglia-88183-default-rtdb.europe-west1.firebasedatabase.app";
+const CATS=["🥗 Antipasti","🍝 Primi","🥩 Secondi","🥦 Contorni","🍰 Dolci","🍞 Lievitati e pane","🥫 Sughi e basi","🍹 Bevande","📦 Altro"];
+const OTHER=CATS[CATS.length-1];
+const UNITS=["pz","kg","g","l","ml","conf"];
+const SPESA_OTHER="📦 Altro";
+let recipes=[],loaded=false,locked=false,unl=false,key=null,busy=0,scr="list",curR="",ed=null,flt="",qs="",sv=0,have=new Set(),msg="";
+let myName="";try{myName=localStorage.getItem("spesa_name")||""}catch(e){}
+const h=(t,p,...c)=>{const e=document.createElement(t);if(p)for(const k in p){if(k==="class")e.className=p[k];else if(k.startsWith("on"))e[k]=p[k];else e.setAttribute(k,p[k])}c.flat().forEach(x=>{if(x!=null&&x!==false)e.append(x)});return e};
+function ensureName(){if(myName)return;const n=prompt("Come ti chiami? Il nome comparirà sulle ricette che aggiungi o modifichi.");if(n&&n.trim()){myName=n.trim().slice(0,20);try{localStorage.setItem("spesa_name",myName)}catch(e){}}}
+const api=(p,m,b)=>fetch(DB_URL+"/ricette"+p+".json",{method:m||"GET",body:b!==undefined?JSON.stringify(b):undefined}).then(r=>{if(!r.ok)throw new Error("HTTP "+r.status);return r.json()});
+const g=u=>fetch(DB_URL+u+".json").then(r=>{if(!r.ok)throw new Error("HTTP "+r.status);return r.json()});
+const TE=new TextEncoder(),TD=new TextDecoder();
+const b64=u=>{let s="";u.forEach(c=>s+=String.fromCharCode(c));return btoa(s)};
+const unb=t=>Uint8Array.from(atob(t),c=>c.charCodeAt(0));
+const rnd=n=>crypto.getRandomValues(new Uint8Array(n));
+async function derive(pw,salt){const b=await crypto.subtle.importKey("raw",TE.encode(pw),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt:unb(salt),iterations:150000,hash:"SHA-256"},b,{name:"AES-GCM",length:256},false,["encrypt","decrypt"])}
+async function enc(o,k){const iv=rnd(12);const c=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},k||key,TE.encode(JSON.stringify(o))));const r=new Uint8Array(12+c.length);r.set(iv);r.set(c,12);return b64(r)}
+async function dec(t,k){const u=unb(t);return JSON.parse(TD.decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:u.slice(0,12)},k||key,u.slice(12))))}
+const put=r=>enc(pack(r)).then(e=>api("/"+r.id,"PUT",{e}));
+async function setup(){
+  const p1=prompt("Primo avvio: scegli la password che cifra il ricettario. Chi apre il link dovrà conoscerla (comunicala a parte). Se la perdi i dati non sono recuperabili.");
+  if(!p1)return false;
+  const p2=prompt("Ripeti la password");
+  if(p2!==p1){alert("Le password non coincidono");return false}
+  const salt=b64(rnd(16));const k=await derive(p1,salt);
+  const r=await fetch(DB_URL+"/meta.json",{method:"PUT",body:JSON.stringify({salt,chk:await enc("ok",k)})});
+  if(!r.ok)throw new Error("HTTP "+r.status);
+  key=k;try{localStorage.setItem("ric_pw",p1)}catch(e){}return true;
+}
+async function unlock(m0){
+  let pw=null;try{pw=localStorage.getItem("ric_pw")}catch(e){}
+  for(let n=0;;n++){
+    if(pw===null){pw=prompt(n?"Password errata. Riprova:":"Ricettario protetto: inserisci la password");if(pw===null)return false}
+    try{const k=await derive(pw,m0.salt);if(await dec(m0.chk,k)==="ok"){key=k;try{localStorage.setItem("ric_pw",pw)}catch(e){}return true}}catch(e){}
+    pw=null;try{localStorage.removeItem("ric_pw")}catch(e){}
+  }
+}
+// novità (come nella spesa)
+let snap=null;try{snap=JSON.parse(localStorage.getItem("ric_snap")||"null")}catch(e){}
+const hs=t=>{let x=5381;for(let i=0;i<t.length;i++)x=(x*33^t.charCodeAt(i))>>>0;return x.toString(36)};
+const sig=r=>hs([r.title,r.cat,r.serv,r.time,r.ing,r.steps,r.notes].join("\u0001"))+"|"+r.title;
+function saveSnap(){try{localStorage.setItem("ric_snap",JSON.stringify(snap))}catch(e){}}
+function allSeen(){snap={};recipes.forEach(r=>{snap[r.id]=sig(r)});saveSnap()}
+function mine(r){if(!snap)return;snap[r.id]=sig(r);saveSnap()}
+const isNew=r=>!!snap&&snap[r.id]!==sig(r);
+function w(fn){busy++;msg="";fn().catch(()=>{msg="Errore di rete: riprova";paintMsg()}).finally(()=>{busy--})}
+const norm=(k,x)=>({id:k,title:String(x.title||""),cat:CATS.includes(x.cat)?x.cat:OTHER,serv:+x.serv||0,time:+x.time||0,ing:String(x.ing||""),steps:String(x.steps||""),notes:String(x.notes||""),fav:!!x.fav,by:String(x.by||""),mod:String(x.mod||""),ts:x.ts||0});
+const pack=r=>({title:r.title,cat:r.cat,serv:r.serv,time:r.time,ing:r.ing,steps:r.steps,notes:r.notes,fav:!!r.fav,by:r.by||"",mod:r.mod||"",ts:r.ts||0});
+const byId=id=>recipes.find(r=>r.id===id);
+// ingredienti
+const fmtN=n=>String(Math.round(n*100)/100).replace(".",",");
+function parseIng(l){
+  const t=l.trim();if(!t)return null;
+  if(/:$/.test(t))return{head:t.slice(0,-1)};
+  const m=t.match(/^(\d+(?:[.,]\d+)?)(?:\s*\/\s*(\d+))?\s*(.*)$/);
+  if(!m)return{q:null,rest:t};
+  let q=parseFloat(m[1].replace(",","."));if(m[2])q/=parseInt(m[2]);
+  return{q,rest:m[3]};
+}
+const ingList=r=>r.ing.split("\n").map(parseIng).filter(Boolean);
+const factor=r=>(r.serv>0&&sv>0)?sv/r.serv:1;
+const ingText=(p,f)=>p.q==null?p.rest:fmtN(p.q*f)+" "+p.rest;
+// navigazione
+const go=x=>{location.hash=x};
+function route(){
+  const x=location.hash.slice(1);
+  if(x==="new"){scr="edit";ed=null}
+  else if(x.startsWith("e/")){scr="edit";ed=x.slice(2)}
+  else if(x.startsWith("r/")){if(curR!==x.slice(2)){have=new Set();sv=0}scr="view";curR=x.slice(2)}
+  else scr="list";
+  render();window.scrollTo(0,0);
+}
+window.onhashchange=route;
+function paintMsg(){const e=document.getElementById("st");if(e)e.textContent=msg}
+function render(){
+  const a=document.getElementById("app");a.textContent="";
+  if(scr==="edit")a.append(...viewEdit().filter(Boolean));
+  else if(scr==="view")a.append(...viewRecipe().filter(Boolean));
+  else a.append(...viewList().filter(Boolean));
+  document.title=scr==="view"&&byId(curR)?byId(curR).title:"Ricettario";
+}
+// lista
+function viewList(){
+  if(locked)return[h("h1",null,"👩‍🍳 Ricettario"),h("div",{class:"msg"},"🔒 Ricettario protetto."),h("div",{class:"acts"},h("button",{class:"w",onclick:()=>{key=null;locked=false;load()}},"🔓 Inserisci password"))];
+  const counts={};recipes.forEach(r=>{counts[r.cat]=(counts[r.cat]||0)+1});
+  const chip=(label,val)=>h("button",{type:"button",class:flt===val?"on":"",onclick:()=>{flt=flt===val?"":val;render()}},label);
+  const nf=recipes.filter(r=>r.fav).length;
+  const s=h("input",{type:"search",id:"s",placeholder:"🔍 Cerca ricetta o ingrediente…",autocomplete:"off",value:qs});
+  s.oninput=()=>{qs=s.value;paintList()};
+  return[
+    h("h1",null,"👩‍🍳 Ricettario"),
+    h("div",{class:"sub",id:"st"},loaded?msg:"Connessione…"),
+    nwBanner(),
+    h("div",{class:"row tools"},s,h("button",{onclick:()=>{ensureName();go("new")},style:"white-space:nowrap"},"＋ Nuova")),
+    h("div",{class:"cats"},chip("Tutte ("+recipes.length+")",""),nf||flt==="__fav"?chip("⭐ Preferite "+nf,"__fav"):null,CATS.filter(c=>counts[c]||flt===c).map(c=>chip(c+" "+(counts[c]||0),c))),
+    h("div",{id:"list"},listCards())
+  ];
+}
+function nwBanner(){
+  const nn=recipes.filter(isNew),dn=(loaded&&snap)?Object.keys(snap).filter(id=>!byId(id)).map(id=>String(snap[id]).split("|").slice(1).join("|")):[];
+  if(!nn.length&&!dn.length)return null;
+  const who=[...new Set(nn.map(r=>r.mod).filter(Boolean))];
+  const t=[nn.length?"🔔 "+nn.length+(nn.length===1?" nuova o modificata":" nuove o modificate")+(who.length?" da "+who.join(", "):""):"",dn.length?"🗑️ "+dn.length+(dn.length===1?" eliminata: ":" eliminate: ")+dn.slice(0,3).join(", ")+(dn.length>3?"…":""):""].filter(Boolean).join(" · ");
+  return h("div",{class:"nw"},h("span",null,t),h("button",{onclick:()=>{allSeen();render()}},"Segna come viste"));
+}
+function listCards(){
+  const q=qs.trim().toLowerCase();
+  const v=recipes.filter(r=>(!flt||(flt==="__fav"?r.fav:r.cat===flt))&&(!q||(r.title+" "+r.ing+" "+r.notes).toLowerCase().includes(q)))
+    .sort((a,b)=>a.title.localeCompare(b.title,"it"));
+  if(!v.length)return[h("div",{class:"msg"},recipes.length?"Nessun risultato":(loaded?"Ricettario vuoto. Aggiungi la prima ricetta!":"Caricamento…"))];
+  return v.map(r=>h("div",{class:"card",onclick:()=>go("r/"+r.id)},
+    h("div",{class:"t"},h("b",null,(isNew(r)?"🆕 ":"")+r.title),h("small",null,[r.cat,r.time?"⏱ "+r.time+"'":"",r.serv?"👥 "+r.serv:""].filter(Boolean).join(" · "))),
+    h("button",{class:"st"+(r.fav?" on":""),"aria-label":"Preferita",onclick:e=>{e.stopPropagation();toggleFav(r)}},r.fav?"★":"☆")));
+}
+function paintList(){const L=document.getElementById("list");if(L){L.textContent="";L.append(...listCards())}}
+function toggleFav(r){r.fav=!r.fav;render();w(()=>put(r))}
+// dettaglio
+function viewRecipe(){
+  const r=byId(curR);
+  if(!r)return[h("button",{class:"l",onclick:()=>go("")},"← Ricettario"),h("div",{class:"msg"},loaded?"Ricetta non trovata (forse eliminata).":"Caricamento…")];
+  if(!sv)sv=r.serv;
+  if(isNew(r)){mine(r)}
+  const f=factor(r);
+  const items=ingList(r);
+  const out=[
+    h("button",{class:"l",onclick:()=>go("")},"← Ricettario"),
+    h("h1",null,r.title),
+    h("div",{class:"meta"},[r.cat,r.time?"⏱ "+r.time+" min":""].filter(Boolean).join(" · "))
+  ];
+  if(r.serv>0)out.push(h("div",{class:"sv"},"👥",h("button",{class:"g",onclick:()=>{if(sv>1){sv--;render()}}},"−"),h("b",null,sv+(sv===1?" porzione":" porzioni")),h("button",{class:"g",onclick:()=>{sv++;render()}},"+"),sv!==r.serv?h("button",{class:"l",onclick:()=>{sv=r.serv;render()}},"ripristina"):null));
+  if(items.length){
+    out.push(h("h2",null,"Ingredienti"));
+    items.forEach((p,k)=>{
+      if(p.head){out.push(h("div",{class:"ing hd"},p.head));return}
+      const on=have.has(k);
+      out.push(h("div",{class:"ing"+(on?" d":""),onclick:()=>{on?have.delete(k):have.add(k);render()}},h("i",null,on?"✓":"○"),ingText(p,f)));
+    });
+    out.push(h("div",{class:"meta"},"Tocca gli ingredienti che hai già: non verranno aggiunti alla spesa."));
+  }
+  if(r.steps.trim())out.push(h("h2",null,"Preparazione"),h("div",{class:"steps"},r.steps.trim()));
+  if(r.notes.trim())out.push(h("h2",null,"Note"),h("div",{class:"steps"},r.notes.trim()));
+  out.push(h("div",{class:"acts"},
+    h("button",{class:"w",onclick:()=>toSpesa(r)},"🛒 Aggiungi alla lista della spesa"),
+    h("button",{class:"g",onclick:()=>toggleFav(r)},r.fav?"★ Preferita":"☆ Preferita"),
+    h("button",{class:"g",onclick:()=>share(r)},"📤 Condividi"),
+    h("button",{class:"g",onclick:()=>{ensureName();go("e/"+r.id)}},"✏️ Modifica"),
+    h("button",{class:"g",onclick:()=>del(r)},"🗑️ Elimina"),
+    h("button",{class:"g w",onclick:()=>window.print()},"📄 PDF / Stampa")));
+  const who=r.mod||r.by;
+  if(who)out.push(h("div",{class:"meta",style:"margin-top:14px"},"Ultima modifica: "+who));
+  out.push(h("div",{class:"sub",id:"st"},msg));
+  return out;
+}
+async function share(r){
+  const url=location.origin+location.pathname+"#r/"+r.id;
+  try{if(navigator.share){await navigator.share({title:r.title,text:"Ricetta: "+r.title,url});return}}catch(e){if(e&&e.name==="AbortError")return}
+  try{await navigator.clipboard.writeText(url);alert("Link copiato")}catch(e){prompt("Copia il link:",url)}
+}
+function del(r){
+  if(!confirm("Eliminare «"+r.title+"»?"))return;
+  recipes=recipes.filter(o=>o.id!==r.id);if(snap){delete snap[r.id];saveSnap()}go("");w(()=>api("/"+r.id,"DELETE"));
+}
+function toSpesa(r){
+  const f=factor(r),list=ingList(r).map((p,k)=>({p,k})).filter(x=>!x.p.head&&!have.has(x.k));
+  if(!list.length){alert("Niente da aggiungere.");return}
+  if(!confirm("Aggiungere "+list.length+(list.length===1?" ingrediente":" ingredienti")+" alla lista della spesa principale?"))return;
+  ensureName();const t0=Date.now();
+  list.forEach(({p},n)=>{
+    let name=p.rest,qty="",unit="";
+    if(p.q!=null){
+      qty=fmtN(p.q*f).slice(0,10);
+      const m=p.rest.match(/^(\S+)\s+(.*)$/),u=m&&m[1].toLowerCase();
+      if(u&&UNITS.includes(u)){unit=u;name=m[2]}else if(UNITS.includes(p.rest.toLowerCase())){unit=p.rest.toLowerCase();name=r.title}else unit="pz";
+    }
+    const id="i"+(t0+n).toString(36)+Math.random().toString(36).slice(2,6);
+    const it={name:name.slice(0,100),qty,unit,cat:SPESA_OTHER,done:false,hl:false,promo:false,by:myName,mod:myName,ts:t0+n};
+    busy++;
+    fetch(SPESA_URL+"/items/"+id+".json",{method:"PUT",body:JSON.stringify(it)}).then(x=>{if(!x.ok)throw 0}).catch(()=>{msg="Errore di rete: riprova";paintMsg()}).finally(()=>{busy--});
+  });
+  msg="✅ Aggiunti alla lista della spesa";paintMsg();
+}
+// modifica
+function viewEdit(){
+  const r=ed?byId(ed):null;
+  if(ed&&!r)return[h("button",{class:"l",onclick:()=>go("")},"← Ricettario"),h("div",{class:"msg"},loaded?"Ricetta non trovata.":"Caricamento…")];
+  const t=h("input",{type:"text",maxlength:"100",placeholder:"Nome della ricetta",value:r?r.title:"",autocomplete:"off"});
+  const c=h("select");CATS.forEach(x=>c.append(h("option",null,x)));c.value=r?r.cat:CATS[1];
+  const s=h("input",{type:"number",inputmode:"numeric",min:"0",placeholder:"Porzioni",value:r&&r.serv?r.serv:""});
+  const m=h("input",{type:"number",inputmode:"numeric",min:"0",placeholder:"Minuti",value:r&&r.time?r.time:""});
+  const i=h("textarea",{rows:"8",placeholder:"Un ingrediente per riga, es.\n200 g spaghetti\n2 uova\nsale q.b.\nPer il sugo:  (riga che finisce con : = titoletto)"},r?r.ing:"");
+  const p=h("textarea",{rows:"8",placeholder:"Procedimento"},r?r.steps:"");
+  const n=h("textarea",{rows:"3",placeholder:"Note, consigli, varianti…"},r?r.notes:"");
+  const save=()=>{
+    const title=t.value.trim();if(!title){t.focus();return}
+    ensureName();
+    const o={title:title.slice(0,100),cat:c.value,serv:Math.max(0,parseInt(s.value)||0),time:Math.max(0,parseInt(m.value)||0),ing:i.value.trim(),steps:p.value.trim(),notes:n.value.trim()};
+    let rec;
+    if(r){Object.assign(r,o,{mod:myName});rec=r;mine(r);w(()=>put(r))}
+    else{
+      rec={id:"r"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),...o,fav:false,by:myName,mod:myName,ts:Date.now()};
+      recipes.push(rec);mine(rec);w(()=>put(rec));
+    }
+    sv=0;have=new Set();curR=rec.id;go("r/"+rec.id);
+  };
+  return[
+    h("button",{class:"l",onclick:()=>history.length>1?history.back():go("")},"← Annulla"),
+    h("h1",null,r?"Modifica ricetta":"Nuova ricetta"),
+    h("label",null,"Nome"),t,
+    h("label",null,"Categoria"),c,
+    h("div",{class:"row"},h("div",{style:"flex:1"},h("label",null,"Porzioni"),s),h("div",{style:"flex:1"},h("label",null,"Tempo (min)"),m)),
+    h("label",null,"Ingredienti"),i,
+    h("label",null,"Preparazione"),p,
+    h("label",null,"Note"),n,
+    h("div",{class:"acts"},h("button",{class:"w",onclick:save},"Salva"))
+  ];
+}
+// sincronizzazione
+async function load(){
+  if(busy||scr==="edit"||unl)return;
+  try{
+    const [m0,o]=await Promise.all([g("/meta"),g("/ricette")]);
+    if(busy||scr==="edit")return;
+    if(!m0||!m0.salt){
+      unl=true;let ok=false;try{ok=await setup()}finally{unl=false}
+      if(!ok){locked=true;render();return}
+      locked=false;loaded=true;recipes=[];if(snap===null)allSeen();render();return;
+    }
+    if(!key){unl=true;let ok=false;try{ok=await unlock(m0)}finally{unl=false}if(!ok){locked=true;render();return}}
+    locked=false;
+    const ks=Object.keys(o||{});
+    const arr=await Promise.all(ks.map(async k=>{try{return norm(k,await dec(o[k].e))}catch(e){return null}}));
+    if(busy||scr==="edit")return;
+    recipes=arr.filter(r=>r&&r.title);loaded=true;msg="";
+    if(snap===null)allSeen();
+    if(document.activeElement&&document.activeElement.id==="s")paintList();else render();
+  }catch(e){msg="Offline: riprovo…";paintMsg()}
+}
+if(!DB_URL){msg="Database non ancora configurato"}
+else{route();load();
+setInterval(()=>{if(!document.hidden)load()},15000);
+document.addEventListener("visibilitychange",()=>{if(document.hidden){if(loaded)allSeen()}else load()});window.addEventListener("pagehide",()=>{if(loaded)allSeen()})}
+</script>
+</body>
+</html>
