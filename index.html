@@ -260,7 +260,7 @@ async function fetchSpesaLists(){
   let ids,extra={};try{extra=JSON.parse(localStorage.getItem("ric_lists")||"{}")}catch(e){}
   const mergeIds=a=>[...new Set([...a,...Object.keys(extra)])];
   try{const o=await fetch(SPESA_URL+"/lists.json?shallow=true").then(r=>{if(!r.ok)throw new Error("HTTP "+r.status);return r.json()});ids=mergeIds(Object.keys(o||{}))}
-  catch(e){ids=mergeIds(L.ids.filter(x=>x!=="main"));out.push({id:"__err",label:"⚠️ Elenco liste non leggibile ("+(e&&e.message||"errore")+")",dis:true})}
+  catch(e){ids=mergeIds(L.ids.filter(x=>x!=="main"))}
   const arr=await Promise.all(ids.map(async id=>{
     let label=null;
     try{
@@ -315,7 +315,7 @@ function toSpesa(r){
   });
   const L=spesaLists(),sel=h("select"),names={main:"Lista principale"};
   sel.append(h("option",{value:"main"},"Caricamento liste…"));
-  fetchSpesaLists().then(a=>{sel.textContent="";a.forEach(x=>{names[x.id]=x.label;const o=h("option",{value:x.id},x.label);if(x.dis)o.disabled=true;sel.append(o)});sel.value=a.some(x=>x.id===L.last&&!x.dis)?L.last:"main"}).catch(e=>{sel.textContent="";sel.append(h("option",{value:"main"},"Lista principale"),h("option",{value:"__err",disabled:"disabled"},"⚠️ Errore: "+(e&&e.message||e)))});
+  fetchSpesaLists().then(a=>{sel.textContent="";a.forEach(x=>{names[x.id]=x.label;const o=h("option",{value:x.id},x.label);if(x.dis)o.disabled=true;sel.append(o)});sel.value=a.some(x=>x.id===L.last&&!x.dis)?L.last:"main"}).catch(()=>{sel.textContent="";sel.append(h("option",{value:"main"},"Lista principale"),h("option",{value:"__other"},"🔗 Altra lista (incolla link)…"))});
   const close=()=>ov.remove();
   const ov=h("div",{style:"position:fixed;inset:0;background:#000a;z-index:9;display:flex;align-items:center;justify-content:center;padding:12px"},
     h("div",{style:"background:var(--card);border-radius:12px;padding:14px;width:100%;max-width:420px"},
