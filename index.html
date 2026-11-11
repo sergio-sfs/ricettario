@@ -204,11 +204,39 @@ function viewRecipe(){
     h("button",{class:"g",onclick:()=>share(r)},"📤 Condividi"),
     h("button",{class:"g",onclick:()=>{ensureName();go("e/"+r.id)}},"✏️ Modifica"),
     h("button",{class:"g",onclick:()=>del(r)},"🗑️ Elimina"),
-    h("button",{class:"g w",onclick:()=>window.print()},"📄 PDF / Stampa")));
+    h("button",{class:"g w",onclick:e=>{const b=e.currentTarget;b.disabled=true;makePdf(r).catch(()=>{msg="Errore PDF: riprova";paintMsg()}).finally(()=>{b.disabled=false})}},"📄 PDF")));
   const who=r.mod||r.by;
   if(who)out.push(h("div",{class:"meta",style:"margin-top:14px"},"Ultima modifica: "+who));
   out.push(h("div",{class:"sub",id:"st"},msg));
   return out;
+}
+let pdfP=null;
+function pdfLib(){
+  if(window.jspdf)return Promise.resolve();
+  if(!pdfP)pdfP=new Promise((res,rej)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";s.onload=res;s.onerror=()=>{pdfP=null;rej(new Error("jspdf"))};document.head.appendChild(s)});
+  return pdfP;
+}
+async function makePdf(r){
+  try{await pdfLib()}catch(e){window.print();return}
+  const doc=new window.jspdf.jsPDF({unit:"mm",format:"a4"});
+  const cl=t=>String(t).replace(/[^\x20-\x7E\xA0-\xFF]/g,"").trim();
+  const L=15,f=factor(r);let y=20;
+  const para=(txt,size,bold,gray)=>{
+    doc.setFont("helvetica",bold?"bold":"normal");doc.setFontSize(size);doc.setTextColor(gray||0);
+    const lh=size*.45+1.6;
+    doc.splitTextToSize(cl(txt),180).forEach(l=>{if(y+lh>285){doc.addPage();y=20}doc.text(l,L,y);y+=lh});
+  };
+  const gap=n=>{y+=n};
+  para(r.title,20,true);
+  para([r.cat.replace(/^\S+\s/,""),r.time?r.time+" min":"",sv>0?sv+(sv===1?" porzione":" porzioni"):""].filter(Boolean).join("  -  "),11,false,90);
+  const items=ingList(r);
+  if(items.length){gap(4);para("INGREDIENTI",12,true);gap(1);items.forEach(p=>p.head?(gap(2),para(p.head,11,true)):para("-  "+ingText(p,f),11,false))}
+  if(r.steps.trim()){gap(5);para("PREPARAZIONE",12,true);gap(1);r.steps.trim().split("\n").forEach(l=>l.trim()?para(l,11,false):gap(2))}
+  if(r.notes.trim()){gap(5);para("NOTE",12,true);gap(1);r.notes.trim().split("\n").forEach(l=>l.trim()?para(l,11,false):gap(2))}
+  const blob=doc.output("blob"),name=(cl(r.title).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"ricetta")+".pdf";
+  const file=new File([blob],name,{type:"application/pdf"});
+  try{if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:r.title});return}}catch(e){if(e&&e.name==="AbortError")return}
+  const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=name;a.target="_blank";document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);
 }
 async function share(r){
   const url=location.origin+location.pathname+"#r/"+r.id;
@@ -224,7 +252,31 @@ function spesaLists(){
   try{k=JSON.parse(localStorage.getItem("spesa_known")||"{}")}catch(e){}
   try{last=localStorage.getItem("spesa_list")||"main"}catch(e){}
   const ids=["main",...Object.keys(k).filter(x=>x!=="main").sort()];
-  return{ids,name:id=>k[id]||(id==="main"?"Lista principale":"Lista senza nome"),last:ids.includes(last)?last:"main"};
+  return{ids,name:id=>k[id]||(id==="main"?"Lista principale":"Lista senza nome"),last};
+}
+const idDate=id=>{const t=parseInt(id.slice(0,8),36);if(!t||t<1e12||t>4e12)return"";const d=new Date(t);return d.toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit"})+" "+d.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})};
+async function fetchSpesaLists(){
+  const L=spesaLists(),out=[{id:"main",label:"Lista principale"}];
+  let ids;
+  try{const o=await fetch(SPESA_URL+"/lists.json?shallow=true").then(r=>{if(!r.ok)throw 0;return r.json()});ids=Object.keys(o||{})}
+  catch(e){ids=L.ids.filter(x=>x!=="main")}
+  const arr=await Promise.all(ids.map(async id=>{
+    let label=null;
+    try{
+      const m=await fetch(SPESA_URL+"/lists/"+id+"/meta.json").then(r=>r.json());
+      if(!m)return null;
+      if(m.salt){
+        let pw=null;try{pw=localStorage.getItem("spesa_pw_"+id)}catch(e){}
+        if(pw!==null){try{const kk=await derive(pw,m.salt);label=(await dec(m.t,kk)).title}catch(e){}}
+        label=(label||"Protetta")+" 🔒"+(label?"":" · creata "+idDate(id));
+      }else{
+        label=m.title||"Lista senza nome";
+        if(typeof m.date==="string"&&m.date.length===10)label+=" · "+m.date.slice(8,10)+"/"+m.date.slice(5,7);
+      }
+    }catch(e){label=L.name(id)}
+    return{id,label};
+  }));
+  return out.concat(arr.filter(Boolean).sort((a,b)=>b.id.localeCompare(a.id)));
 }
 async function sendSpesa(id,its){
   const base=SPESA_URL+(id==="main"?"":"/lists/"+id);
@@ -260,8 +312,9 @@ function toSpesa(r){
     }
     return{id:"i"+(t0+n).toString(36)+Math.random().toString(36).slice(2,6),it:{name:name.slice(0,100),qty,unit,cat:SPESA_OTHER,done:false,hl:false,promo:false,by:myName,mod:myName,ts:t0+n}};
   });
-  const L=spesaLists(),sel=h("select");
-  L.ids.forEach(id=>{const o=h("option",{value:id},L.name(id));sel.append(o)});sel.value=L.last;
+  const L=spesaLists(),sel=h("select"),names={main:"Lista principale"};
+  sel.append(h("option",{value:"main"},"Caricamento liste…"));
+  fetchSpesaLists().then(a=>{sel.textContent="";a.forEach(x=>{names[x.id]=x.label;sel.append(h("option",{value:x.id},x.label))});sel.value=a.some(x=>x.id===L.last)?L.last:"main"});
   const close=()=>ov.remove();
   const ov=h("div",{style:"position:fixed;inset:0;background:#000a;z-index:9;display:flex;align-items:center;justify-content:center;padding:12px"},
     h("div",{style:"background:var(--card);border-radius:12px;padding:14px;width:100%;max-width:420px"},
@@ -269,7 +322,7 @@ function toSpesa(r){
       h("div",{class:"row",style:"margin-top:10px"},
         h("button",{style:"flex:1",onclick:()=>{
           const id=sel.value;close();busy++;msg="Invio alla spesa…";paintMsg();
-          sendSpesa(id,its).then(ok=>{msg=ok?"✅ Aggiunti a «"+L.name(id)+"»":"";paintMsg()}).catch(()=>{msg="Errore: riprova";paintMsg()}).finally(()=>{busy--});
+          sendSpesa(id,its).then(ok=>{msg=ok?"✅ Aggiunti a «"+(names[id]||id)+"»":"";paintMsg()}).catch(()=>{msg="Errore: riprova";paintMsg()}).finally(()=>{busy--});
         }},"Aggiungi"),
         h("button",{class:"g",style:"flex:1",onclick:close},"Annulla"))));
   document.body.append(ov);
