@@ -257,9 +257,10 @@ function spesaLists(){
 const idDate=id=>{const t=parseInt(id.slice(0,8),36);if(!t||t<1e12||t>4e12)return"";const d=new Date(t);return d.toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit"})+" "+d.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})};
 async function fetchSpesaLists(){
   const L=spesaLists(),out=[{id:"main",label:"Lista principale"}];
-  let ids;
-  try{const o=await fetch(SPESA_URL+"/lists.json?shallow=true").then(r=>{if(!r.ok)throw new Error("HTTP "+r.status);return r.json()});ids=Object.keys(o||{})}
-  catch(e){ids=L.ids.filter(x=>x!=="main");out.push({id:"__err",label:"⚠️ Elenco liste non leggibile ("+(e&&e.message||"errore")+")",dis:true})}
+  let ids,extra={};try{extra=JSON.parse(localStorage.getItem("ric_lists")||"{}")}catch(e){}
+  const mergeIds=a=>[...new Set([...a,...Object.keys(extra)])];
+  try{const o=await fetch(SPESA_URL+"/lists.json?shallow=true").then(r=>{if(!r.ok)throw new Error("HTTP "+r.status);return r.json()});ids=mergeIds(Object.keys(o||{}))}
+  catch(e){ids=mergeIds(L.ids.filter(x=>x!=="main"));out.push({id:"__err",label:"⚠️ Elenco liste non leggibile ("+(e&&e.message||"errore")+")",dis:true})}
   const arr=await Promise.all(ids.map(async id=>{
     let label=null;
     try{
@@ -276,7 +277,7 @@ async function fetchSpesaLists(){
     }catch(e){label=L.name(id)}
     return{id,label};
   }));
-  return out.concat(arr.filter(Boolean).sort((a,b)=>b.id.localeCompare(a.id)));
+  return out.concat(arr.filter(Boolean).sort((a,b)=>b.id.localeCompare(a.id)),[{id:"__other",label:"🔗 Altra lista (incolla link)…"}]);
 }
 async function sendSpesa(id,its){
   const base=SPESA_URL+(id==="main"?"":"/lists/"+id);
@@ -321,8 +322,24 @@ function toSpesa(r){
       h("div",{style:"margin-bottom:8px"},"Aggiungere "+its.length+(its.length===1?" ingrediente":" ingredienti")+" a quale lista della spesa?"),sel,
       h("div",{class:"row",style:"margin-top:10px"},
         h("button",{style:"flex:1",onclick:()=>{
-          const id=sel.value;close();busy++;msg="Invio alla spesa…";paintMsg();
-          sendSpesa(id,its).then(ok=>{msg=ok?"✅ Aggiunti a «"+(names[id]||id)+"»":"";paintMsg()}).catch(()=>{msg="Errore: riprova";paintMsg()}).finally(()=>{busy--});
+          let id=sel.value;
+          if(id==="__err")return;
+          if(id==="__other"){
+            const u=prompt("Incolla il link della lista (quello che condividi dalla spesa)");if(!u)return;
+            const m=u.match(/#([a-z0-9]{3,20})\s*$/);if(!m){alert("Link non valido");return}
+            id=m[1];
+          }
+          close();busy++;msg="Invio alla spesa…";paintMsg();
+          (async()=>{
+            if(!names[id]){
+              const mt=await fetch(SPESA_URL+"/lists/"+id+"/meta.json").then(r=>r.json());
+              if(!mt)throw new Error("lista non trovata");
+              names[id]=mt.salt?"lista protetta":(mt.title||"lista");
+              let ex={};try{ex=JSON.parse(localStorage.getItem("ric_lists")||"{}")}catch(e){}
+              ex[id]=1;try{localStorage.setItem("ric_lists",JSON.stringify(ex))}catch(e){}
+            }
+            return sendSpesa(id,its);
+          })().then(ok=>{msg=ok?"✅ Aggiunti a «"+(names[id]||id)+"»":"";paintMsg()}).catch(()=>{msg="Errore: riprova";paintMsg()}).finally(()=>{busy--});
         }},"Aggiungi"),
         h("button",{class:"g",style:"flex:1",onclick:close},"Annulla"))));
   document.body.append(ov);
