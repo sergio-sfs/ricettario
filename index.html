@@ -14,7 +14,9 @@
 <title>Ricettario</title>
 <style>
 :root{--bg:#f8f6f3;--card:#fff;--tx:#2a221c;--mut:#7a6d63;--ac:#d9480f;--bd:#e8e1da;--hl:#fff1b8}
-@media(prefers-color-scheme:dark){:root{--bg:#1c1612;--card:#271f19;--tx:#f1e9e2;--mut:#a39485;--ac:#ff7a3d;--bd:#3a2f27;--hl:#4d4421}}
+:root[data-theme=dark]{--bg:#1c1612;--card:#271f19;--tx:#f1e9e2;--mut:#a39485;--ac:#ff7a3d;--bd:#3a2f27;--hl:#4d4421}
+:root[data-theme=light]{color-scheme:light}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1c1612;--card:#271f19;--tx:#f1e9e2;--mut:#a39485;--ac:#ff7a3d;--bd:#3a2f27;--hl:#4d4421}}
 *{box-sizing:border-box}
 body{margin:0 auto;font:16px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--tx);padding:16px;max-width:560px}
 h1{font-size:22px;margin:4px 0 2px}
@@ -64,6 +66,10 @@ const UNITS=["pz","kg","g","l","ml","conf"];
 const SPESA_OTHER="📦 Altro";
 let recipes=[],loaded=false,locked=false,unl=false,key=null,busy=0,scr="list",curR="",ed=null,flt="",qs="",sv=0,have=new Set(),msg="";
 let myName="";try{myName=localStorage.getItem("spesa_name")||""}catch(e){}
+let theme="";try{theme=localStorage.getItem("ric_theme")||""}catch(e){}
+const applyTheme=()=>{if(theme)document.documentElement.dataset.theme=theme;else delete document.documentElement.dataset.theme};
+applyTheme();
+function cycleTheme(){theme=theme===""?"dark":theme==="dark"?"light":"";try{localStorage.setItem("ric_theme",theme)}catch(e){}applyTheme();render()}
 const h=(t,p,...c)=>{const e=document.createElement(t);if(p)for(const k in p){if(k==="class")e.className=p[k];else if(k.startsWith("on"))e[k]=p[k];else e.setAttribute(k,p[k])}c.flat().forEach(x=>{if(x!=null&&x!==false)e.append(x)});return e};
 function ensureName(){if(myName)return;const n=prompt("Come ti chiami? Il nome comparirà sulle ricette che aggiungi o modifichi.");if(n&&n.trim()){myName=n.trim().slice(0,20);try{localStorage.setItem("spesa_name",myName)}catch(e){}}}
 const api=(p,m,b)=>fetch(DB_URL+"/ricette"+p+".json",{method:m||"GET",body:b!==undefined?JSON.stringify(b):undefined}).then(r=>{if(!r.ok)throw new Error("HTTP "+r.status);return r.json()});
@@ -147,7 +153,7 @@ function viewList(){
   const s=h("input",{type:"search",id:"s",placeholder:"🔍 Cerca ricetta o ingrediente…",autocomplete:"off",value:qs});
   s.oninput=()=>{qs=s.value;paintList()};
   return[
-    h("h1",null,"👩‍🍳 Ricettario"),
+    h("div",{class:"row"},h("h1",{style:"flex:1"},"👩‍🍳 Ricettario"),h("button",{class:"g",style:"padding:6px 10px","aria-label":"Tema",title:"Tema: "+(theme==="dark"?"scuro":theme==="light"?"chiaro":"automatico"),onclick:cycleTheme},theme==="dark"?"🌙":theme==="light"?"☀️":"🌗")),
     h("div",{class:"sub",id:"st"},loaded?msg:"Connessione…"),
     nwBanner(),
     h("div",{class:"row tools"},s,h("button",{onclick:()=>{ensureName();go("new")},style:"white-space:nowrap"},"＋ Nuova")),
